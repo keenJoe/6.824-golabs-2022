@@ -22,7 +22,7 @@ type ExampleReply struct {
 	Y int
 }
 
-// Add your RPC definitions here.
+// WorkerArgs Add your RPC definitions here.
 type WorkerArgs struct {
 	WorkerId string
 }

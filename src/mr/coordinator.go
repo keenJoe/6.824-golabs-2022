@@ -27,7 +27,7 @@ type Coordinator struct {
 	allCommited    bool
 }
 
-// map task definition
+// MapTask map task definition
 type MapTask struct {
 	FileName   string
 	TaskStatus int
@@ -35,7 +35,7 @@ type MapTask struct {
 	WorkerId   string
 }
 
-// reduce task definition
+// ReduceTask reduce task definition
 type ReduceTask struct {
 	fileName   string
 	taskStatus int
@@ -43,7 +43,7 @@ type ReduceTask struct {
 	workerId   string
 }
 
-// Your code here -- RPC handlers for the worker to call.
+// ApplyForTask Your code here -- RPC handlers for the worker to call.
 // worker apply for task
 /**
 1. worker is not sure to apply for task what type is, map or reduce
@@ -83,12 +83,12 @@ func (c *Coordinator) ApplyForTask(args *WorkerArgs, reply *WorkerReply) error {
 	return nil
 }
 
-// when all task's status is Done, modify the c.allCommited as true
+// CommitTask when all task's status is Done, modify the c.allCommited as true
 func (c *Coordinator) CommitTask(args *CommitArgs, reply *CommitReply) {
 
 }
 
-// an example RPC handler.
+// Example an example RPC handler.
 // the RPC argument and reply types are defined in rpc.go.
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
@@ -109,7 +109,7 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-// main/mrcoordinator.go calls Done() periodically to find out
+// Done main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	//ret := false
@@ -127,7 +127,7 @@ func (c *Coordinator) Done() bool {
 	return c.allCommited
 }
 
-// create a Coordinator.
+// MakeCoordinator create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
