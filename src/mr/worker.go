@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/rpc"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -16,6 +17,13 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -41,7 +49,7 @@ func Worker(mapf func(string, string) []KeyValue,
 func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	flag := true
 	for flag {
-		reply := GetTask()
+		reply, workerId := GetTask()
 		if reply.TaskType == NoTaskType {
 			break
 		}
@@ -53,7 +61,7 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 		}
 
 		if reply.TaskType == MapTaskType {
-			DoMapTask(reply, mapf)
+			DoMapTask(reply, mapf, workerId)
 			flag = false
 			log.Printf("map task done")
 		} else if reply.TaskType == ReduceTaskType {
@@ -63,7 +71,7 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 	}
 }
 
-func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue) {
+func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, workerId int) {
 	intermediate := []KeyValue{}
 
 	filename := reply.InputFile
@@ -79,7 +87,43 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue) {
 
 	kva := mapf(filename, string(content))
 	intermediate = append(intermediate, kva...)
-	log.Printf("intermediate: %v", intermediate)
+	// log.Printf("intermediate: %v", intermediate)
+
+	sort.Sort(ByKey(intermediate))
+	// 将中间结果写入文件
+	for _, kv := range intermediate {
+		// 判断数据应该写入哪个reduce任务的文件
+		index := ihash(kv.Key) % reply.NReduce
+		ofileName := fmt.Sprintf("mr-%d-%d-%d", reply.TaskId, index, workerId)
+
+		//判断文件是否存在
+		if _, err := os.Stat(ofileName); os.IsNotExist(err) {
+			log.Printf("ofileName: %v", ofileName)
+			ofile, err := os.Create(ofileName)
+			if err != nil {
+				log.Fatalf("cannot create %v", ofileName)
+			}
+			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
+			ofile.Close()
+		} else {
+			ofile, err := os.OpenFile(ofileName, os.O_WRONLY|os.O_APPEND, 0666)
+			if err != nil {
+				log.Fatalf("cannot open %v", ofileName)
+			}
+			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
+			ofile.Close()
+		}
+	}
+
+	// 通知 coordinator 任务完成，并传递临时文件信息
+	args := UpdateTaskArgs{
+		TaskId:   reply.TaskId,
+		WorkerId: workerId,
+		TaskType: MapTaskType,
+	}
+	updateTaskReply := UpdateTaskReply{}
+	call("Coordinator.UpdateTask", &args, &updateTaskReply)
+	log.Printf("update task reply: %v", reply)
 }
 
 func DoReduceTask(reply AssignTaskReply) {
@@ -87,7 +131,7 @@ func DoReduceTask(reply AssignTaskReply) {
 }
 
 // 获取任务
-func GetTask() AssignTaskReply {
+func GetTask() (AssignTaskReply, int) {
 	workerId := generateWorkerId()
 	log.Printf("workerId: %v", workerId)
 	args := AssignTaskArgs{
@@ -103,7 +147,7 @@ func GetTask() AssignTaskReply {
 		fmt.Printf("call failed!\n")
 	}
 
-	return reply
+	return reply, workerId
 }
 
 // 生成唯一的worker id

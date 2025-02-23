@@ -42,7 +42,7 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 				//c.mapTasks[i] = task
 				reply.TaskType = MapTaskType
 				reply.TaskId = task.TaskId
-				// reply.NumOtherPhase = c.nReduce
+				reply.NReduce = c.nReduce
 				reply.InputFile = task.FileName
 				return nil
 			}
