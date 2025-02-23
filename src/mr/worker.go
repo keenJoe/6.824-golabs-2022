@@ -4,13 +4,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
-<<<<<<< HEAD
 	"math/rand"
 	"net/rpc"
 	"time"
-=======
-	"net/rpc"
->>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 )
 
 // Map functions return a slice of KeyValue.
@@ -40,7 +36,6 @@ func Worker(mapf func(string, string) []KeyValue,
 
 }
 
-<<<<<<< HEAD
 // 获取任务
 func GetTask() {
 	workerId := generateWorkerId()
@@ -67,8 +62,6 @@ func generateWorkerId() int {
 	return rand.Intn(100000) + 1
 }
 
-=======
->>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 // example function to show how to make an RPC call to the coordinator.
 //
 // the RPC argument and reply types are defined in rpc.go.
