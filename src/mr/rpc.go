@@ -44,11 +44,11 @@ const (
 )
 
 type MapTask struct {
-	FileName   string
-	Status     TaskStatus
-	WorkerId   int
-	StartTime  time.Time
-	TaskNumber int // task的编号，用于生成中间文件名
+	FileName  string
+	Status    TaskStatus
+	WorkerId  int
+	StartTime time.Time
+	TaskId    int // task的编号，用于生成中间文件名
 }
 
 type ReduceTask struct {
@@ -79,7 +79,7 @@ type AssignTaskReply struct {
 }
 
 // Worker完成任务时发送的参数
-type ReportArgs struct {
+type UpdateTaskArgs struct {
 	TaskType    TaskType
 	TaskId      int
 	WorkerId    int
@@ -88,7 +88,7 @@ type ReportArgs struct {
 }
 
 // Coordinator响应Worker完成报告的结构体
-type ReportReply struct {
+type UpdateTaskReply struct {
 	Received bool
 }
 

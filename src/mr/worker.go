@@ -3,9 +3,11 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/rpc"
+	"os"
 	"time"
 )
 
@@ -32,12 +34,60 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
-	GetTask()
+	// GetTask()
+	mainProcess(mapf, reducef)
+}
+
+func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	flag := true
+	for flag {
+		reply := GetTask()
+		if reply.TaskType == NoTaskType {
+			break
+		}
+
+		// 如果没有可以分配的map，但是map任务还未执行完，此时需要等待
+		if reply.TaskType == MapTaskType && reply.TaskId == -1 {
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		if reply.TaskType == MapTaskType {
+			DoMapTask(reply, mapf)
+			flag = false
+			log.Printf("map task done")
+		} else if reply.TaskType == ReduceTaskType {
+			DoReduceTask(reply)
+		}
+		// time.Sleep(10 * time.Second)
+	}
+}
+
+func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue) {
+	intermediate := []KeyValue{}
+
+	filename := reply.InputFile
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+	}
+	file.Close()
+
+	kva := mapf(filename, string(content))
+	intermediate = append(intermediate, kva...)
+	log.Printf("intermediate: %v", intermediate)
+}
+
+func DoReduceTask(reply AssignTaskReply) {
 
 }
 
 // 获取任务
-func GetTask() {
+func GetTask() AssignTaskReply {
 	workerId := generateWorkerId()
 	log.Printf("workerId: %v", workerId)
 	args := AssignTaskArgs{
@@ -52,6 +102,8 @@ func GetTask() {
 	} else {
 		fmt.Printf("call failed!\n")
 	}
+
+	return reply
 }
 
 // 生成唯一的worker id

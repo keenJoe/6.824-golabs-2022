@@ -41,28 +41,69 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 				task.StartTime = time.Now()
 				//c.mapTasks[i] = task
 				reply.TaskType = MapTaskType
-				reply.TaskId = task.TaskNumber
+				reply.TaskId = task.TaskId
 				// reply.NumOtherPhase = c.nReduce
 				reply.InputFile = task.FileName
 				return nil
 			}
 		}
+
+		reply.TaskType = NoTaskType
+		reply.TaskId = -1
+		return nil
 	} else if c.phase == ReducePhase {
 		// 如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
+	} else if c.phase == CompletePhase {
+		reply.TaskType = NoTaskType
+		return nil
 	}
 
 	return nil
 }
 
-// // 更新任务
-// func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) error {
-// 	return nil
-// }
+// 更新任务
+func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-// // 监控任务
-// func (c *Coordinator) MonitorTask() error {
-// 	return nil
-// }
+	if args.TaskType == MapTaskType && c.mapTasks[args.TaskId].Status == InProgress {
+		if args.Done {
+			c.mapTasks[args.TaskId].Status = Completed
+			reply.Received = true
+		}
+	}
+	return nil
+}
+
+// 监控任务
+func (c *Coordinator) MonitorTask() error {
+	if c.phase == MapPhase {
+		for _, task := range c.mapTasks {
+			if task.Status == InProgress {
+				if time.Since(task.StartTime) > 10*time.Second {
+					task.Status = Idle
+					task.WorkerId = 0
+					task.StartTime = time.Time{}
+				}
+			}
+		}
+	} else if c.phase == ReducePhase {
+
+	}
+	return nil
+}
+
+func (c *Coordinator) DoneForWorker() bool {
+	// log.Println("mr coordinator done")
+	ret := false
+
+	// Your code here.
+	if c.phase == CompletePhase {
+		ret = true
+	}
+
+	return ret
+}
 
 // an example RPC handler.
 //
@@ -122,9 +163,9 @@ func (c *Coordinator) init(files []string, nReduce int) {
 	c.mapTasks = make([]MapTask, c.nMap)
 	for i, file := range files {
 		c.mapTasks[i] = MapTask{
-			FileName:   file,
-			Status:     Idle,
-			TaskNumber: i,
+			FileName: file,
+			Status:   Idle,
+			TaskId:   i,
 		}
 	}
 
