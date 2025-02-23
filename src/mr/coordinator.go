@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+<<<<<<< HEAD
 	"sync"
 	"time"
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 )
 
 type Coordinator struct {
@@ -24,6 +27,7 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
+<<<<<<< HEAD
 // 分配map任务
 func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
 	c.mu.Lock()
@@ -64,6 +68,8 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 // 	return nil
 // }
 
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 // an example RPC handler.
 //
 // the RPC argument and reply types are defined in rpc.go.
@@ -93,9 +99,12 @@ func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
+<<<<<<< HEAD
 	if c.phase == CompletePhase {
 		ret = true
 	}
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 
 	return ret
 }
@@ -108,7 +117,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
+<<<<<<< HEAD
 	c.init(files, nReduce)
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 
 	c.server()
 	return &c

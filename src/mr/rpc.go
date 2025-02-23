@@ -9,7 +9,10 @@ package mr
 import (
 	"os"
 	"strconv"
+<<<<<<< HEAD
 	"time"
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 )
 
 //
@@ -27,6 +30,7 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
+<<<<<<< HEAD
 type TaskStatus int
 
 const (
@@ -92,6 +96,8 @@ type ReportReply struct {
 	Received bool
 }
 
+=======
+>>>>>>> 7ca7351990c146cf590f20a0de3b2e3a67c6e614
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
 // Can't use the current directory since
