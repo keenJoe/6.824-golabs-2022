@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	TaskTimeout     = 10 * time.Second // worker处理任务的超时时间
+	MonitorInterval = 2 * time.Second  // 监控检查的间隔时间
+)
+
 type Coordinator struct {
 	// Your definitions here.
 	mu          sync.Mutex
@@ -97,18 +102,23 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 
 // 监控任务
 func (c *Coordinator) MonitorTask() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.phase == MapPhase {
-		for _, task := range c.mapTasks {
-			if task.Status == InProgress {
-				if time.Since(task.StartTime) > 10*time.Second {
-					task.Status = Idle
-					task.WorkerId = 0
-					task.StartTime = time.Time{}
+		// 使用索引遍历，这样可以直接修改原始数据
+		for i := range c.mapTasks {
+			if c.mapTasks[i].Status == InProgress {
+				if time.Since(c.mapTasks[i].StartTime) > TaskTimeout {
+					c.mapTasks[i].Status = Idle
+					c.mapTasks[i].WorkerId = -1
+					c.mapTasks[i].StartTime = time.Time{}
+					log.Printf("被取消的任务：%v", c.mapTasks[i])
 				}
 			}
 		}
 	} else if c.phase == ReducePhase {
-
+		// 这里也需要实现reduce任务的监控逻辑
 	}
 	return nil
 }
@@ -170,6 +180,15 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 
 	// Your code here.
 	c.init(files, nReduce)
+
+	// 启动后台监控任务
+	go func() {
+		log.Printf("监控任务启动")
+		for {
+			c.MonitorTask()
+			time.Sleep(MonitorInterval)
+		}
+	}()
 
 	c.server()
 	return &c

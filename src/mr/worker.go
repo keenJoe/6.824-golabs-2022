@@ -117,6 +117,8 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 		}
 	}
 
+	// time.Sleep(10 * time.Second)
+
 	// 通知 coordinator 任务完成，并传递临时文件信息
 	args := UpdateTaskArgs{
 		TaskId:      reply.TaskId,
@@ -128,6 +130,16 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	updateTaskReply := UpdateTaskReply{}
 	call("Coordinator.UpdateTask", &args, &updateTaskReply)
 	log.Printf("update task reply: %v", updateTaskReply)
+
+	if updateTaskReply.Received {
+		log.Printf("map task done")
+	} else {
+		log.Printf("map task failed")
+		// 需要删除临时文件
+		for _, fileName := range intermediateFileName {
+			os.Remove(fileName)
+		}
+	}
 }
 
 func DoReduceTask(reply AssignTaskReply) {
