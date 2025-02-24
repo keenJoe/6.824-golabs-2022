@@ -56,6 +56,7 @@ type ReduceTask struct {
 	WorkerId   int
 	StartTime  time.Time
 	TaskNumber int // task的编号，用于生成中间文件名
+	InputFiles []string
 }
 
 type TaskType int

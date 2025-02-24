@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -36,15 +37,11 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 	defer c.mu.Unlock()
 
 	//如果当前任务状态是map，那么随机返回一个未开始的map任务
-	//如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
 	workerId := args.WorkerID
 	if c.phase == MapPhase {
 		for i, task := range c.mapTasks {
 			// 如果任务未开始，则分配给worker
 			if task.Status == Idle {
-				// task.Status = InProgress
-				// task.WorkerId = workerId
-				// task.StartTime = time.Now()
 				c.mapTasks[i].Status = InProgress
 				c.mapTasks[i].WorkerId = workerId
 				c.mapTasks[i].StartTime = time.Now()
@@ -214,6 +211,7 @@ func (c *Coordinator) init(files []string, nReduce int) {
 	c.nReduce = nReduce
 	c.nMap = len(files)
 	c.phase = MapPhase
+
 	c.mapTasks = make([]MapTask, c.nMap)
 	for i, file := range files {
 		c.mapTasks[i] = MapTask{
@@ -223,12 +221,19 @@ func (c *Coordinator) init(files []string, nReduce int) {
 		}
 	}
 
-	c.reduceTasks = make([]ReduceTask, c.nReduce)
+	// c.reduceTasks = make([]ReduceTask, c.nReduce)
 	for i := range c.reduceTasks {
-		c.reduceTasks[i] = ReduceTask{
-			Status:     Idle,
+		task := ReduceTask{
 			TaskNumber: i,
+			Status:     Idle,
+			InputFiles: make([]string, 0),
 		}
+		// 收集所有map任务产生的，以i为reduce编号的中间文件
+		for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
+			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
+			task.InputFiles = append(task.InputFiles, filename)
+		}
+		c.reduceTasks = append(c.reduceTasks, task)
 	}
 
 	c.intermediateFiles = make([][]string, c.nMap)

@@ -62,10 +62,9 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 
 		if reply.TaskType == MapTaskType {
 			DoMapTask(reply, mapf, workerId)
-			flag = false
-			log.Printf("map task done")
+			// flag = false
 		} else if reply.TaskType == ReduceTaskType {
-			DoReduceTask(reply)
+			DoReduceTask(reply, reducef)
 		}
 		// time.Sleep(10 * time.Second)
 	}
@@ -142,7 +141,7 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	}
 }
 
-func DoReduceTask(reply AssignTaskReply) {
+func DoReduceTask(reply AssignTaskReply, reducef func(string, []string) string) {
 
 }
 
