@@ -61,7 +61,7 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 		log.Printf("reduce phase is working")
 		// 如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
 		for i, task := range c.reduceTasks {
-			log.Printf("now reduce task: %v", task.Status)
+			// log.Printf("now reduce task: %v", task.Status)
 			if task.Status == Idle {
 				c.reduceTasks[i].Status = InProgress
 				c.reduceTasks[i].WorkerId = workerId
@@ -159,21 +159,46 @@ func (c *Coordinator) MonitorTask() error {
 		}
 	} else if c.phase == ReducePhase {
 		// 这里也需要实现reduce任务的监控逻辑
+		for i := range c.reduceTasks {
+			if c.reduceTasks[i].Status == InProgress {
+				if time.Since(c.reduceTasks[i].StartTime) > TaskTimeout {
+					c.reduceTasks[i].Status = Idle
+					c.reduceTasks[i].WorkerId = -1
+					c.reduceTasks[i].StartTime = time.Time{}
+					log.Printf("被取消的reduce任务：%v", c.reduceTasks[i])
+				}
+			}
+		}
+
+		// 检查是否所有map任务都完成
+		allMapsDone := true
+		for _, task := range c.reduceTasks {
+			if task.Status != Completed {
+				allMapsDone = false
+				break
+			}
+		}
+
+		// 如果所有map任务完成，切换到reduce阶段
+		if allMapsDone {
+			c.phase = CompletePhase
+			log.Printf("All map tasks completed. Switching to complete phase")
+		}
 	}
 	return nil
 }
 
-func (c *Coordinator) DoneForWorker() bool {
-	// log.Println("mr coordinator done")
-	ret := false
+// func (c *Coordinator) DoneForWorker() bool {
+// 	// log.Println("mr coordinator done")
+// 	ret := false
 
-	// Your code here.
-	if c.phase == CompletePhase {
-		ret = true
-	}
+// 	// Your code here.
+// 	if c.phase == CompletePhase {
+// 		ret = true
+// 	}
 
-	return ret
-}
+// 	return ret
+// }
 
 // an example RPC handler.
 //
@@ -262,22 +287,6 @@ func (c *Coordinator) init(files []string, nReduce int) {
 			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
 			c.reduceTasks[i].InputFiles = append(c.reduceTasks[i].InputFiles, filename)
 		}
-		log.Printf("reduce task: %v", c.reduceTasks)
-	}
-
-	for i := range c.reduceTasks {
-		task := ReduceTask{
-			TaskNumber: i,
-			Status:     Idle,
-			InputFiles: make([]string, 0),
-		}
-		// 收集所有map任务产生的，以i为reduce编号的中间文件
-		for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
-			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
-			task.InputFiles = append(task.InputFiles, filename)
-		}
-		c.reduceTasks = append(c.reduceTasks, task)
-		log.Printf("reduce task: %v", c.reduceTasks)
 	}
 
 	c.intermediateFiles = make([][]string, c.nMap)

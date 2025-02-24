@@ -53,13 +53,13 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 
 	for flag {
 		reply := getTask(workerId)
+
 		if reply.TaskType == MapTaskType {
 			doMapTask(reply, mapf, workerId)
 		} else if reply.TaskType == ReduceTaskType {
-			doReduceTask(reply, reducef)
-			flag = false
+			doReduceTask(reply, reducef, workerId)
 		}
-		time.Sleep(1 * time.Second)
+		// time.Sleep(1 * time.Second)
 	}
 }
 
@@ -127,7 +127,7 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	}
 }
 
-func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string) {
+func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, workerId int) {
 	log.Printf("do reduce task is working")
 
 	reduceFiles := reply.ReduceFiles
@@ -178,6 +178,26 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string) 
 	}
 
 	ofile.Close()
+
+	// 通知 coordinator 任务完成，并传递临时文件信息
+	args := UpdateTaskArgs{
+		TaskId:   reply.TaskId,
+		WorkerId: workerId,
+		TaskType: ReduceTaskType,
+		Done:     true,
+	}
+	updateTaskReply := UpdateTaskReply{}
+	call("Coordinator.UpdateTask", &args, &updateTaskReply)
+	log.Printf("update task reply: %v", updateTaskReply)
+
+	if updateTaskReply.Received {
+		log.Printf("reduce task done")
+	} else {
+		log.Printf("reduce task failed")
+		// 需要删除临时文件
+		os.Remove(ofileName)
+	}
+
 	log.Printf("reduce task done")
 }
 
