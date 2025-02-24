@@ -120,6 +120,7 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 		TaskId:   reply.TaskId,
 		WorkerId: workerId,
 		TaskType: MapTaskType,
+		Done:     true,
 	}
 	updateTaskReply := UpdateTaskReply{}
 	call("Coordinator.UpdateTask", &args, &updateTaskReply)

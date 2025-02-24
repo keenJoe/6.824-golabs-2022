@@ -66,11 +66,17 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if args.TaskType == MapTaskType && c.mapTasks[args.TaskId].Status == InProgress {
+	if args.TaskType == MapTaskType &&
+		c.mapTasks[args.TaskId].Status == InProgress &&
+		args.WorkerId == c.mapTasks[args.TaskId].WorkerId &&
+		time.Since(c.mapTasks[args.TaskId].StartTime) <= 10*time.Second {
 		if args.Done {
 			c.mapTasks[args.TaskId].Status = Completed
-			reply.Received = true
 		}
+		reply.Received = true
+	} else {
+		// 任务已经超时或被重新分配
+		reply.Received = false
 	}
 	return nil
 }
