@@ -53,6 +53,10 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 
 	for flag {
 		reply := getTask(workerId)
+		// if reply.TaskType == NoTaskType {
+		// 	flag = false
+		// 	break
+		// }
 
 		if reply.TaskType == MapTaskType {
 			doMapTask(reply, mapf, workerId)
@@ -214,7 +218,7 @@ func getTask(workerId int) AssignTaskReply {
 		// reply.Y should be 100.
 		log.Printf("reply.Y %v\n", reply)
 	} else {
-		fmt.Printf("call failed!\n")
+		log.Printf("call failed!\n")
 	}
 
 	return reply

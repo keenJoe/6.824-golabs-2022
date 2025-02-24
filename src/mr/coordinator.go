@@ -54,8 +54,8 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 			}
 		}
 
-		reply.TaskType = NoTaskType
-		reply.TaskId = -1
+		// reply.TaskType = NoTaskType
+		// reply.TaskId = -1
 		return nil
 	} else if c.phase == ReducePhase {
 		log.Printf("reduce phase is working")
@@ -75,8 +75,8 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 			}
 		}
 
-		reply.TaskType = NoTaskType
-		reply.TaskId = -1
+		// reply.TaskType = NoTaskType
+		// reply.TaskId = -1
 		return nil
 	} else if c.phase == CompletePhase {
 		reply.TaskType = NoTaskType
@@ -103,9 +103,7 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 				for _, oldName := range args.OutputFiles {
 					// log.Printf("oldName: %v", oldName)
 					newName := oldName[:strings.LastIndex(oldName, "-")]
-					oldPath := "../main/" + oldName
-					newPath := "../main/" + newName
-					os.Rename(oldPath, newPath)
+					os.Rename(oldName, newName)
 				}
 			}
 		}
@@ -188,18 +186,6 @@ func (c *Coordinator) MonitorTask() error {
 	return nil
 }
 
-// func (c *Coordinator) DoneForWorker() bool {
-// 	// log.Println("mr coordinator done")
-// 	ret := false
-
-// 	// Your code here.
-// 	if c.phase == CompletePhase {
-// 		ret = true
-// 	}
-
-// 	return ret
-// }
-
 // an example RPC handler.
 //
 // the RPC argument and reply types are defined in rpc.go.
@@ -226,6 +212,9 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
 	// log.Println("mr coordinator done")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	ret := false
 
 	// Your code here.
