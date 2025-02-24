@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,12 +34,15 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 	//如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
 	workerId := args.WorkerID
 	if c.phase == MapPhase {
-		for _, task := range c.mapTasks {
+		for i, task := range c.mapTasks {
 			// 如果任务未开始，则分配给worker
 			if task.Status == Idle {
-				task.Status = InProgress
-				task.WorkerId = workerId
-				task.StartTime = time.Now()
+				// task.Status = InProgress
+				// task.WorkerId = workerId
+				// task.StartTime = time.Now()
+				c.mapTasks[i].Status = InProgress
+				c.mapTasks[i].WorkerId = workerId
+				c.mapTasks[i].StartTime = time.Now()
 				//c.mapTasks[i] = task
 				reply.TaskType = MapTaskType
 				reply.TaskId = task.TaskId
@@ -72,6 +76,16 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 		time.Since(c.mapTasks[args.TaskId].StartTime) <= 10*time.Second {
 		if args.Done {
 			c.mapTasks[args.TaskId].Status = Completed
+			// 将中间文件写入到reduce任务的文件中
+			if args.OutputFiles != nil {
+				for _, oldName := range args.OutputFiles {
+					log.Printf("oldName: %v", oldName)
+					newName := oldName[:strings.LastIndex(oldName, "-")]
+					oldPath := "../main/" + oldName
+					newPath := "../main/" + newName
+					os.Rename(oldPath, newPath)
+				}
+			}
 		}
 		reply.Received = true
 	} else {

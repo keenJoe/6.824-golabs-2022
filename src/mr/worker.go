@@ -3,7 +3,7 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
+	"io"
 	"log"
 	"math/rand"
 	"net/rpc"
@@ -79,7 +79,7 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)
 	}
-	content, err := ioutil.ReadAll(file)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
 	}
@@ -90,7 +90,8 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	// log.Printf("intermediate: %v", intermediate)
 
 	sort.Sort(ByKey(intermediate))
-	// 将中间结果写入文件
+	// 将中间结果写入中间文件
+	intermediateFileName := make([]string, 10)
 	for _, kv := range intermediate {
 		// 判断数据应该写入哪个reduce任务的文件
 		index := ihash(kv.Key) % reply.NReduce
@@ -103,6 +104,7 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 			if err != nil {
 				log.Fatalf("cannot create %v", ofileName)
 			}
+			intermediateFileName[index] = ofileName
 			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
 			ofile.Close()
 		} else {
@@ -117,14 +119,15 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 
 	// 通知 coordinator 任务完成，并传递临时文件信息
 	args := UpdateTaskArgs{
-		TaskId:   reply.TaskId,
-		WorkerId: workerId,
-		TaskType: MapTaskType,
-		Done:     true,
+		TaskId:      reply.TaskId,
+		WorkerId:    workerId,
+		TaskType:    MapTaskType,
+		Done:        true,
+		OutputFiles: intermediateFileName,
 	}
 	updateTaskReply := UpdateTaskReply{}
 	call("Coordinator.UpdateTask", &args, &updateTaskReply)
-	log.Printf("update task reply: %v", reply)
+	log.Printf("update task reply: %v", updateTaskReply)
 }
 
 func DoReduceTask(reply AssignTaskReply) {
