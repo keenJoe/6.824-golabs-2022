@@ -49,7 +49,7 @@ func Worker(mapf func(string, string) []KeyValue,
 func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	flag := true
 	for flag {
-		reply, workerId := GetTask()
+		reply, workerId := getTask()
 		if reply.TaskType == NoTaskType {
 			break
 		}
@@ -61,16 +61,16 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 		}
 
 		if reply.TaskType == MapTaskType {
-			DoMapTask(reply, mapf, workerId)
+			doMapTask(reply, mapf, workerId)
 			// flag = false
 		} else if reply.TaskType == ReduceTaskType {
-			DoReduceTask(reply, reducef)
+			doReduceTask(reply, reducef)
 		}
 		// time.Sleep(10 * time.Second)
 	}
 }
 
-func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, workerId int) {
+func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, workerId int) {
 	intermediate := []KeyValue{}
 
 	filename := reply.InputFile
@@ -141,12 +141,12 @@ func DoMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	}
 }
 
-func DoReduceTask(reply AssignTaskReply, reducef func(string, []string) string) {
+func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string) {
 
 }
 
 // 获取任务
-func GetTask() (AssignTaskReply, int) {
+func getTask() (AssignTaskReply, int) {
 	workerId := generateWorkerId()
 	log.Printf("workerId: %v", workerId)
 	args := AssignTaskArgs{
