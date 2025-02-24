@@ -117,6 +117,21 @@ func (c *Coordinator) MonitorTask() error {
 				}
 			}
 		}
+
+		// 检查是否所有map任务都完成
+		allMapsDone := true
+		for _, task := range c.mapTasks {
+			if task.Status != Completed {
+				allMapsDone = false
+				break
+			}
+		}
+
+		// 如果所有map任务完成，切换到reduce阶段
+		if allMapsDone {
+			c.phase = ReducePhase
+			log.Printf("All map tasks completed. Switching to reduce phase")
+		}
 	} else if c.phase == ReducePhase {
 		// 这里也需要实现reduce任务的监控逻辑
 	}
