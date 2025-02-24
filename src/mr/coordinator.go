@@ -58,9 +58,29 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 		reply.TaskId = -1
 		return nil
 	} else if c.phase == ReducePhase {
+		log.Printf("reduce phase is working")
 		// 如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
+		for i, task := range c.reduceTasks {
+			log.Printf("now reduce task: %v", task.Status)
+			if task.Status == Idle {
+				c.reduceTasks[i].Status = InProgress
+				c.reduceTasks[i].WorkerId = workerId
+				c.reduceTasks[i].StartTime = time.Now()
+
+				reply.TaskType = ReduceTaskType
+				reply.TaskId = task.TaskNumber
+				reply.NReduce = c.nReduce
+				reply.ReduceFiles = task.InputFiles
+				return nil
+			}
+		}
+
+		reply.TaskType = NoTaskType
+		reply.TaskId = -1
+		return nil
 	} else if c.phase == CompletePhase {
 		reply.TaskType = NoTaskType
+		reply.TaskId = -1
 		return nil
 	}
 
@@ -81,7 +101,7 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 			// 将中间文件写入到reduce任务的文件中
 			if args.OutputFiles != nil {
 				for _, oldName := range args.OutputFiles {
-					log.Printf("oldName: %v", oldName)
+					// log.Printf("oldName: %v", oldName)
 					newName := oldName[:strings.LastIndex(oldName, "-")]
 					oldPath := "../main/" + oldName
 					newPath := "../main/" + newName
@@ -90,6 +110,14 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 			}
 		}
 		reply.Received = true
+	} else if args.TaskType == ReduceTaskType &&
+		c.reduceTasks[args.TaskId].Status == InProgress &&
+		args.WorkerId == c.reduceTasks[args.TaskId].WorkerId &&
+		time.Since(c.reduceTasks[args.TaskId].StartTime) <= 10*time.Second {
+		if args.Done {
+			c.reduceTasks[args.TaskId].Status = Completed
+			reply.Received = true
+		}
 	} else {
 		// 任务已经超时或被重新分配
 		reply.Received = false
@@ -110,7 +138,7 @@ func (c *Coordinator) MonitorTask() error {
 					c.mapTasks[i].Status = Idle
 					c.mapTasks[i].WorkerId = -1
 					c.mapTasks[i].StartTime = time.Time{}
-					log.Printf("被取消的任务：%v", c.mapTasks[i])
+					log.Printf("被取消的map任务：%v", c.mapTasks[i])
 				}
 			}
 		}
@@ -221,7 +249,22 @@ func (c *Coordinator) init(files []string, nReduce int) {
 		}
 	}
 
-	// c.reduceTasks = make([]ReduceTask, c.nReduce)
+	c.reduceTasks = make([]ReduceTask, c.nReduce)
+	for i := 0; i < c.nReduce; i++ {
+		c.reduceTasks[i] = ReduceTask{
+			TaskNumber: i,
+			Status:     Idle,
+			InputFiles: make([]string, 0),
+		}
+
+		// 收集所有map任务产生的，以i为reduce编号的中间文件
+		for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
+			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
+			c.reduceTasks[i].InputFiles = append(c.reduceTasks[i].InputFiles, filename)
+		}
+		log.Printf("reduce task: %v", c.reduceTasks)
+	}
+
 	for i := range c.reduceTasks {
 		task := ReduceTask{
 			TaskNumber: i,
@@ -234,6 +277,7 @@ func (c *Coordinator) init(files []string, nReduce int) {
 			task.InputFiles = append(task.InputFiles, filename)
 		}
 		c.reduceTasks = append(c.reduceTasks, task)
+		log.Printf("reduce task: %v", c.reduceTasks)
 	}
 
 	c.intermediateFiles = make([][]string, c.nMap)
@@ -241,6 +285,6 @@ func (c *Coordinator) init(files []string, nReduce int) {
 		c.intermediateFiles[i] = make([]string, c.nReduce)
 	}
 
-	log.Println("init map tasks: ", c)
+	// log.Println("init map tasks: ", c)
 	log.Printf("mr coordinator init done")
 }

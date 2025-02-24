@@ -9,6 +9,7 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -48,25 +49,17 @@ func Worker(mapf func(string, string) []KeyValue,
 
 func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	flag := true
+	workerId := generateWorkerId()
+
 	for flag {
-		reply, workerId := getTask()
-		if reply.TaskType == NoTaskType {
-			break
-		}
-
-		// 如果没有可以分配的map，但是map任务还未执行完，此时需要等待
-		if reply.TaskType == MapTaskType && reply.TaskId == -1 {
-			time.Sleep(10 * time.Second)
-			continue
-		}
-
+		reply := getTask(workerId)
 		if reply.TaskType == MapTaskType {
 			doMapTask(reply, mapf, workerId)
-			// flag = false
 		} else if reply.TaskType == ReduceTaskType {
 			doReduceTask(reply, reducef)
+			flag = false
 		}
-		// time.Sleep(10 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -86,19 +79,14 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 
 	kva := mapf(filename, string(content))
 	intermediate = append(intermediate, kva...)
-	// log.Printf("intermediate: %v", intermediate)
 
-	sort.Sort(ByKey(intermediate))
 	// 将中间结果写入中间文件
 	intermediateFileName := make([]string, 10)
 	for _, kv := range intermediate {
-		// 判断数据应该写入哪个reduce任务的文件
 		index := ihash(kv.Key) % reply.NReduce
 		ofileName := fmt.Sprintf("mr-%d-%d-%d", reply.TaskId, index, workerId)
-
 		//判断文件是否存在
 		if _, err := os.Stat(ofileName); os.IsNotExist(err) {
-			log.Printf("ofileName: %v", ofileName)
 			ofile, err := os.Create(ofileName)
 			if err != nil {
 				log.Fatalf("cannot create %v", ofileName)
@@ -115,8 +103,6 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 			ofile.Close()
 		}
 	}
-
-	// time.Sleep(10 * time.Second)
 
 	// 通知 coordinator 任务完成，并传递临时文件信息
 	args := UpdateTaskArgs{
@@ -142,12 +128,61 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 }
 
 func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string) {
+	log.Printf("do reduce task is working")
 
+	reduceFiles := reply.ReduceFiles
+	log.Printf("reduce files: %v", reduceFiles)
+
+	allContent := []KeyValue{}
+	for _, file := range reduceFiles {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", file)
+		}
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			kv := strings.Split(line, " ")
+			allContent = append(allContent, KeyValue{Key: kv[0], Value: kv[1]})
+		}
+	}
+
+	sort.Sort(ByKey(allContent))
+	// 3、开始遍历，然后进行统计
+	suffixNumber := reduceFiles[0][strings.LastIndex(reduceFiles[0], "-")+1:]
+	log.Printf("suffixNumber: %v", suffixNumber)
+	ofileName := fmt.Sprintf("mr-out-%s", suffixNumber)
+	log.Printf("ofileName: %v", ofileName)
+	ofile, err := os.Create(ofileName)
+	if err != nil {
+		log.Fatalf("cannot create %v", ofileName)
+	}
+
+	i := 0
+	for i < len(allContent) {
+		j := i + 1
+		for j < len(allContent) && allContent[j].Key == allContent[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, allContent[k].Value)
+		}
+		output := reducef(allContent[i].Key, values)
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", allContent[i].Key, output)
+
+		i = j
+	}
+
+	ofile.Close()
+	log.Printf("reduce task done")
 }
 
 // 获取任务
-func getTask() (AssignTaskReply, int) {
-	workerId := generateWorkerId()
+func getTask(workerId int) AssignTaskReply {
 	log.Printf("workerId: %v", workerId)
 	args := AssignTaskArgs{
 		WorkerID: workerId,
@@ -162,7 +197,7 @@ func getTask() (AssignTaskReply, int) {
 		fmt.Printf("call failed!\n")
 	}
 
-	return reply, workerId
+	return reply
 }
 
 // 生成唯一的worker id
