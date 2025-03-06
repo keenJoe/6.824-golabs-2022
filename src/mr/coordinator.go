@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
@@ -26,162 +25,256 @@ type Coordinator struct {
 	nMap        int   // map任务数量
 	phase       Phase // 当前阶段（MAP/REDUCE）
 	// done              bool       // 是否所有任务完成
-	// intermediateFiles [][]string // map任务产生的中间文件
+	intermediateFiles [][]string // map任务产生的中间文件
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
 // 分配map任务
 func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) error {
+	// 1. 参数验证
+	if err := c.validateWorker(args.WorkerID); err != nil {
+		return err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	//如果当前任务状态是map，那么随机返回一个未开始的map任务
-	workerId := args.WorkerID
-	if c.phase == MapPhase {
-		for i, task := range c.mapTasks {
-			// 如果任务未开始，则分配给worker
-			if task.Status == Idle {
-				c.mapTasks[i].Status = InProgress
-				c.mapTasks[i].WorkerId = workerId
-				c.mapTasks[i].StartTime = time.Now()
-				//c.mapTasks[i] = task
-				reply.TaskType = MapTaskType
-				reply.TaskId = task.TaskId
-				reply.NReduce = c.nReduce
-				reply.InputFile = task.FileName
-				return nil
-			}
-		}
-
-		// reply.TaskType = NoTaskType
-		// reply.TaskId = -1
-		return nil
-	} else if c.phase == ReducePhase {
-		log.Printf("reduce phase is working")
-		// 如果当前任务状态是reduce，那么随机返回一个未开始的reduce任务
-		for i, task := range c.reduceTasks {
-			// log.Printf("now reduce task: %v", task.Status)
-			if task.Status == Idle {
-				c.reduceTasks[i].Status = InProgress
-				c.reduceTasks[i].WorkerId = workerId
-				c.reduceTasks[i].StartTime = time.Now()
-
-				reply.TaskType = ReduceTaskType
-				reply.TaskId = task.TaskNumber
-				reply.NReduce = c.nReduce
-				reply.ReduceFiles = task.InputFiles
-				return nil
-			}
-		}
-
-		// reply.TaskType = NoTaskType
-		// reply.TaskId = -1
-		return nil
-	} else if c.phase == CompletePhase {
+	// 2. 根据当前阶段分配任务
+	switch c.phase {
+	case MapPhase:
+		return c.assignMapTask(args.WorkerID, reply)
+	case ReducePhase:
+		return c.assignReduceTask(args.WorkerID, reply)
+	case CompletePhase:
 		reply.TaskType = NoTaskType
 		reply.TaskId = -1
 		return nil
+	default:
+		return fmt.Errorf("unknown phase: %v", c.phase)
+	}
+}
+
+// Map 任务分配
+func (c *Coordinator) assignMapTask(workerId int, reply *AssignTaskReply) error {
+	// 查找空闲的 Map 任务
+	for i := range c.mapTasks {
+		task := &c.mapTasks[i]
+		if task.Status == Idle {
+			// 更新任务状态
+			c.assignTaskToWorker(task, workerId)
+
+			// 填充响应
+			reply.TaskType = MapTaskType
+			reply.TaskId = task.TaskId
+			reply.NReduce = c.nReduce
+			reply.InputFile = task.FileName
+
+			log.Printf("Assigned map task %d to worker %d", task.TaskId, workerId)
+			return nil
+		}
 	}
 
+	// 检查是否所有 Map 任务都已完成
+	if c.allMapTasksCompleted() {
+		c.phase = ReducePhase
+		log.Printf("All map tasks completed, switching to reduce phase")
+	}
+
+	reply.TaskType = NoTaskType
+	reply.TaskId = -1
 	return nil
 }
 
-// 更新任务
+// Reduce 任务分配
+func (c *Coordinator) assignReduceTask(workerId int, reply *AssignTaskReply) error {
+	// 查找空闲的 Reduce 任务
+	for i := range c.reduceTasks {
+		task := &c.reduceTasks[i]
+		if task.Status == Idle {
+			// 更新任务状态
+			c.assignTaskToWorker(task, workerId)
+
+			// 填充响应
+			reply.TaskType = ReduceTaskType
+			reply.TaskId = task.TaskNumber
+			reply.NReduce = c.nReduce
+			reply.ReduceFiles = task.InputFiles
+
+			log.Printf("Assigned reduce task %d to worker %d", task.TaskNumber, workerId)
+			return nil
+		}
+	}
+
+	// 检查是否所有 Reduce 任务都已完成
+	if c.allReduceTasksCompleted() {
+		c.phase = CompletePhase
+		log.Printf("All reduce tasks completed, switching to complete phase")
+	}
+
+	reply.TaskType = NoTaskType
+	reply.TaskId = -1
+	return nil
+}
+
+// 更新任务状态
+func (c *Coordinator) assignTaskToWorker(task interface{}, workerId int) {
+	switch t := task.(type) {
+	case *MapTask:
+		t.Status = InProgress
+		t.WorkerId = workerId
+		t.StartTime = time.Now()
+	case *ReduceTask:
+		t.Status = InProgress
+		t.WorkerId = workerId
+		t.StartTime = time.Now()
+	}
+}
+
+// 检查所有 Map 任务是否完成
+func (c *Coordinator) allMapTasksCompleted() bool {
+	for _, task := range c.mapTasks {
+		if task.Status != Completed {
+			return false
+		}
+	}
+
+	// 将map任务产生的中间文件收集起来，用于reduce任务的输入
+	for _, task := range c.mapTasks {
+		for _, filename := range task.OutputFiles {
+			// 当前的文件格式是： mr-0-0
+			// 需要提取出reduce编号
+			var mapId, reduceId int
+			fmt.Sscanf(filename, "mr-%d-%d", &mapId, &reduceId)
+			c.intermediateFiles[reduceId] = append(c.intermediateFiles[reduceId], filename)
+		}
+	}
+
+	c.reduceTasks = make([]ReduceTask, c.nReduce)
+	for i := 0; i < c.nReduce; i++ {
+		c.reduceTasks[i] = ReduceTask{
+			TaskNumber: i,
+			Status:     Idle,
+			InputFiles: c.intermediateFiles[i],
+		}
+	}
+	return true
+}
+
+// 检查所有 Reduce 任务是否完成
+func (c *Coordinator) allReduceTasksCompleted() bool {
+	for _, task := range c.reduceTasks {
+		if task.Status != Completed {
+			return false
+		}
+	}
+	return true
+}
+
+// 验证 Worker ID
+func (c *Coordinator) validateWorker(workerId int) error {
+	if workerId < 0 {
+		return fmt.Errorf("invalid worker ID: %d", workerId)
+	}
+	return nil
+}
+
+// 监控任务超时
+func (c *Coordinator) MonitorTasks() {
+	for {
+		c.mu.Lock()
+		now := time.Now()
+
+		// 检查 Map 任务超时
+		if c.phase == MapPhase {
+			for i := range c.mapTasks {
+				task := &c.mapTasks[i]
+				if task.Status == InProgress && now.Sub(task.StartTime) > TaskTimeout {
+					log.Printf("Map task %d timeout, resetting", task.TaskId)
+					task.Status = Idle
+					task.WorkerId = -1
+				}
+			}
+		}
+
+		// 检查 Reduce 任务超时
+		if c.phase == ReducePhase {
+			for i := range c.reduceTasks {
+				task := &c.reduceTasks[i]
+				if task.Status == InProgress && now.Sub(task.StartTime) > TaskTimeout {
+					log.Printf("Reduce task %d timeout, resetting", task.TaskNumber)
+					task.Status = Idle
+					task.WorkerId = -1
+				}
+			}
+		}
+
+		c.mu.Unlock()
+		time.Sleep(time.Second)
+	}
+}
+
+// 更新任务完成状态
 func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if args.TaskType == MapTaskType &&
-		c.mapTasks[args.TaskId].Status == InProgress &&
-		args.WorkerId == c.mapTasks[args.TaskId].WorkerId &&
-		time.Since(c.mapTasks[args.TaskId].StartTime) <= 10*time.Second {
-		if args.Done {
-			c.mapTasks[args.TaskId].Status = Completed
-			// 将中间文件写入到reduce任务的文件中
-			if args.OutputFiles != nil {
-				for _, oldName := range args.OutputFiles {
-					// log.Printf("oldName: %v", oldName)
-					newName := oldName[:strings.LastIndex(oldName, "-")]
-					os.Rename(oldName, newName)
+	switch args.TaskType {
+	case MapTaskType:
+		if task := c.getMapTask(args.TaskId); task != nil {
+			if task.Status == InProgress && task.WorkerId == args.WorkerId {
+				task.Status = Completed
+				reply.Received = true
+				log.Printf("Map task %d completed by worker %d", args.TaskId, args.WorkerId)
+
+				// todo 处理输出文件，源头要加上绝对路径
+				for _, tempFile := range args.OutputFiles {
+					// 从临时文件名(如 "mr-0-0-1110")提取信息
+					var mapId, reduceId int
+					fmt.Sscanf(tempFile, "mr-%d-%d-", &mapId, &reduceId)
+					// 构造最终文件名(如 "mr-0-0")
+					finalName := fmt.Sprintf("mr-%d-%d", mapId, reduceId)
+					// 重命名文件
+					err := os.Rename(tempFile, finalName)
+					if err != nil {
+						log.Printf("Failed to rename file from %s to %s: %v", tempFile, finalName, err)
+						continue
+					}
+
+					// 记录最终文件名
+					task.OutputFiles = append(task.OutputFiles, finalName)
 				}
+
+				return nil
 			}
 		}
-		reply.Received = true
-	} else if args.TaskType == ReduceTaskType &&
-		c.reduceTasks[args.TaskId].Status == InProgress &&
-		args.WorkerId == c.reduceTasks[args.TaskId].WorkerId &&
-		time.Since(c.reduceTasks[args.TaskId].StartTime) <= 10*time.Second {
-		if args.Done {
-			c.reduceTasks[args.TaskId].Status = Completed
-			reply.Received = true
+	case ReduceTaskType:
+		if task := c.getReduceTask(args.TaskId); task != nil {
+			if task.Status == InProgress && task.WorkerId == args.WorkerId {
+				task.Status = Completed
+				reply.Received = true
+				log.Printf("Reduce task %d completed by worker %d", args.TaskId, args.WorkerId)
+				return nil
+			}
 		}
-	} else {
-		// 任务已经超时或被重新分配
-		reply.Received = false
+	}
+
+	reply.Received = false
+	return nil
+}
+
+// 获取 Map 任务
+func (c *Coordinator) getMapTask(taskId int) *MapTask {
+	if taskId >= 0 && taskId < len(c.mapTasks) {
+		return &c.mapTasks[taskId]
 	}
 	return nil
 }
 
-// 监控任务
-func (c *Coordinator) MonitorTask() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.phase == MapPhase {
-		// 使用索引遍历，这样可以直接修改原始数据
-		for i := range c.mapTasks {
-			if c.mapTasks[i].Status == InProgress {
-				if time.Since(c.mapTasks[i].StartTime) > TaskTimeout {
-					c.mapTasks[i].Status = Idle
-					c.mapTasks[i].WorkerId = -1
-					c.mapTasks[i].StartTime = time.Time{}
-					log.Printf("被取消的map任务：%v", c.mapTasks[i])
-				}
-			}
-		}
-
-		// 检查是否所有map任务都完成
-		allMapsDone := true
-		for _, task := range c.mapTasks {
-			if task.Status != Completed {
-				allMapsDone = false
-				break
-			}
-		}
-
-		// 如果所有map任务完成，切换到reduce阶段
-		if allMapsDone {
-			c.phase = ReducePhase
-			log.Printf("All map tasks completed. Switching to reduce phase")
-		}
-	} else if c.phase == ReducePhase {
-		// 这里也需要实现reduce任务的监控逻辑
-		for i := range c.reduceTasks {
-			if c.reduceTasks[i].Status == InProgress {
-				if time.Since(c.reduceTasks[i].StartTime) > TaskTimeout {
-					c.reduceTasks[i].Status = Idle
-					c.reduceTasks[i].WorkerId = -1
-					c.reduceTasks[i].StartTime = time.Time{}
-					log.Printf("被取消的reduce任务：%v", c.reduceTasks[i])
-				}
-			}
-		}
-
-		// 检查是否所有map任务都完成
-		allMapsDone := true
-		for _, task := range c.reduceTasks {
-			if task.Status != Completed {
-				allMapsDone = false
-				break
-			}
-		}
-
-		// 如果所有map任务完成，切换到reduce阶段
-		if allMapsDone {
-			c.phase = CompletePhase
-			log.Printf("All map tasks completed. Switching to complete phase")
-		}
+// 获取 Reduce 任务
+func (c *Coordinator) getReduceTask(taskId int) *ReduceTask {
+	if taskId >= 0 && taskId < len(c.reduceTasks) {
+		return &c.reduceTasks[taskId]
 	}
 	return nil
 }
@@ -239,7 +332,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	go func() {
 		log.Printf("监控任务启动")
 		for {
-			c.MonitorTask()
+			c.MonitorTasks()
 			time.Sleep(MonitorInterval)
 		}
 	}()
@@ -274,11 +367,11 @@ func (c *Coordinator) init(files []string, nReduce int) {
 			WorkerId:   -1,
 		}
 
-		// 预处理，收集所有map任务产生的，以i为reduce编号的中间文件
-		for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
-			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
-			c.reduceTasks[i].InputFiles = append(c.reduceTasks[i].InputFiles, filename)
-		}
+		// // 预处理，收集所有map任务产生的，以i为reduce编号的中间文件
+		// for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
+		// 	filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
+		// 	c.reduceTasks[i].InputFiles = append(c.reduceTasks[i].InputFiles, filename)
+		// }
 	}
 
 	// 初始化中间文件

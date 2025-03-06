@@ -59,8 +59,12 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 		// }
 
 		if reply.TaskType == MapTaskType {
+			log.Printf("do map task is working")
+			log.Printf("map task reply: %v", reply)
 			doMapTask(reply, mapf, workerId)
 		} else if reply.TaskType == ReduceTaskType {
+			log.Printf("do reduce task is working")
+			log.Printf("reduce task reply: %v", reply)
 			doReduceTask(reply, reducef, workerId)
 		}
 		// time.Sleep(1 * time.Second)
@@ -213,14 +217,7 @@ func getTask(workerId int) AssignTaskReply {
 	}
 	// declare a reply structure.
 	reply := AssignTaskReply{}
-	ok := call("Coordinator.AssignTask", &args, &reply)
-	if ok {
-		// reply.Y should be 100.
-		log.Printf("reply.Y %v\n", reply)
-	} else {
-		log.Printf("call failed!\n")
-	}
-
+	call("Coordinator.AssignTask", &args, &reply)
 	return reply
 }
 

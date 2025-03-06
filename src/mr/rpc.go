@@ -44,11 +44,12 @@ const (
 )
 
 type MapTask struct {
-	FileName  string
-	Status    TaskStatus
-	WorkerId  int
-	StartTime time.Time
-	TaskId    int // task的编号，用于生成中间文件名
+	FileName    string
+	Status      TaskStatus
+	WorkerId    int
+	StartTime   time.Time
+	TaskId      int // task的编号，用于生成中间文件名
+	OutputFiles []string
 }
 
 type ReduceTask struct {
