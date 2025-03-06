@@ -88,6 +88,10 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	kva := mapf(filename, string(content))
 	intermediate = append(intermediate, kva...)
 
+	currentDir, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("cannot get current directory: %v", err)
+	}
 	// 将中间结果写入中间文件
 	intermediateFileName := make([]string, 10)
 	for _, kv := range intermediate {
@@ -99,7 +103,7 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 			if err != nil {
 				log.Fatalf("cannot create %v", ofileName)
 			}
-			intermediateFileName[index] = ofileName
+			intermediateFileName[index] = currentDir + "/" + ofileName
 			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
 			ofile.Close()
 		} else {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -228,14 +229,18 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 				log.Printf("Map task %d completed by worker %d", args.TaskId, args.WorkerId)
 
 				// todo 处理输出文件，源头要加上绝对路径
+				currentDir := ""
 				for _, tempFile := range args.OutputFiles {
 					// 从临时文件名(如 "mr-0-0-1110")提取信息
+					if currentDir == "" {
+						currentDir = tempFile[:strings.LastIndex(tempFile, "/")]
+					}
 					var mapId, reduceId int
 					fmt.Sscanf(tempFile, "mr-%d-%d-", &mapId, &reduceId)
 					// 构造最终文件名(如 "mr-0-0")
 					finalName := fmt.Sprintf("mr-%d-%d", mapId, reduceId)
 					// 重命名文件
-					err := os.Rename(tempFile, finalName)
+					err := os.Rename(tempFile, currentDir+"/"+finalName)
 					if err != nil {
 						log.Printf("Failed to rename file from %s to %s: %v", tempFile, finalName, err)
 						continue
