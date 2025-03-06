@@ -26,7 +26,7 @@ type Coordinator struct {
 	nMap        int   // map任务数量
 	phase       Phase // 当前阶段（MAP/REDUCE）
 	// done              bool       // 是否所有任务完成
-	intermediateFiles [][]string // map任务产生的中间文件
+	// intermediateFiles [][]string // map任务产生的中间文件
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -254,12 +254,14 @@ func (c *Coordinator) init(files []string, nReduce int) {
 	c.nMap = len(files)
 	c.phase = MapPhase
 
+	// 初始化map任务
 	c.mapTasks = make([]MapTask, c.nMap)
 	for i, file := range files {
 		c.mapTasks[i] = MapTask{
 			FileName: file,
 			Status:   Idle,
 			TaskId:   i,
+			WorkerId: -1,
 		}
 	}
 
@@ -269,19 +271,21 @@ func (c *Coordinator) init(files []string, nReduce int) {
 			TaskNumber: i,
 			Status:     Idle,
 			InputFiles: make([]string, 0),
+			WorkerId:   -1,
 		}
 
-		// 收集所有map任务产生的，以i为reduce编号的中间文件
+		// 预处理，收集所有map任务产生的，以i为reduce编号的中间文件
 		for mapIndex := 0; mapIndex < c.nMap; mapIndex++ {
 			filename := fmt.Sprintf("mr-%d-%d", mapIndex, i)
 			c.reduceTasks[i].InputFiles = append(c.reduceTasks[i].InputFiles, filename)
 		}
 	}
 
-	c.intermediateFiles = make([][]string, c.nMap)
-	for i := range c.intermediateFiles {
-		c.intermediateFiles[i] = make([]string, c.nReduce)
-	}
+	// 初始化中间文件
+	// c.intermediateFiles = make([][]string, c.nMap)
+	// for i := range c.intermediateFiles {
+	// 	c.intermediateFiles[i] = make([]string, c.nReduce)
+	// }
 
 	// log.Println("init map tasks: ", c)
 	log.Printf("mr coordinator init done")
