@@ -3,7 +3,7 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
-	"io"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/rpc"
@@ -52,20 +52,24 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 	workerId := generateWorkerId()
 
 	for flag {
-		reply := getTask(workerId)
-		// if reply.TaskType == NoTaskType {
-		// 	flag = false
-		// 	break
-		// }
+		reply, err := getTask(workerId)
+		if err != nil {
+			log.Printf("Error getting task: %v", err)
+			time.Sleep(time.Second)
+			break
+		}
 
 		if reply.TaskType == MapTaskType {
 			log.Printf("do map task is working")
-			log.Printf("map task reply: %v", reply)
+			// log.Printf("map task reply: %v", reply)
 			doMapTask(reply, mapf, workerId)
 		} else if reply.TaskType == ReduceTaskType {
 			log.Printf("do reduce task is working")
 			log.Printf("reduce task reply: %v", reply)
 			doReduceTask(reply, reducef, workerId)
+		} else if reply.TaskType == NoTaskType {
+			log.Printf("No task available, waiting...")
+			time.Sleep(time.Second)
 		}
 		// time.Sleep(1 * time.Second)
 	}
@@ -79,7 +83,7 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)
 	}
-	content, err := io.ReadAll(file)
+	content, err := ioutil.ReadAll(file)
 	if err != nil {
 		log.Fatalf("cannot read %v", filename)
 	}
@@ -164,9 +168,9 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, 
 	sort.Sort(ByKey(allContent))
 	// 3、开始遍历，然后进行统计
 	suffixNumber := reduceFiles[0][strings.LastIndex(reduceFiles[0], "-")+1:]
-	log.Printf("suffixNumber: %v", suffixNumber)
+	// log.Printf("suffixNumber: %v", suffixNumber)
 	ofileName := fmt.Sprintf("mr-out-%s", suffixNumber)
-	log.Printf("ofileName: %v", ofileName)
+	// log.Printf("ofileName: %v", ofileName)
 	ofile, err := os.Create(ofileName)
 	if err != nil {
 		log.Fatalf("cannot create %v", ofileName)
@@ -185,7 +189,6 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, 
 		output := reducef(allContent[i].Key, values)
 		// this is the correct format for each line of Reduce output.
 		fmt.Fprintf(ofile, "%v %v\n", allContent[i].Key, output)
-
 		i = j
 	}
 
@@ -214,15 +217,18 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, 
 }
 
 // 获取任务
-func getTask(workerId int) AssignTaskReply {
-	log.Printf("workerId: %v", workerId)
+func getTask(workerId int) (AssignTaskReply, error) {
+	// log.Printf("workerId: %v", workerId)
 	args := AssignTaskArgs{
 		WorkerID: workerId,
 	}
 	// declare a reply structure.
 	reply := AssignTaskReply{}
-	call("Coordinator.AssignTask", &args, &reply)
-	return reply
+	ok := call("Coordinator.AssignTask", &args, &reply)
+	if !ok {
+		return AssignTaskReply{}, fmt.Errorf("RPC call failed")
+	}
+	return reply, nil
 }
 
 // 生成唯一的worker id
@@ -268,7 +274,8 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		log.Printf("dialing error: %v", err)
+		return false
 	}
 	defer c.Close()
 
