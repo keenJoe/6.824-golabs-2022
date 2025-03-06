@@ -60,12 +60,12 @@ func mainProcess(mapf func(string, string) []KeyValue, reducef func(string, []st
 		}
 
 		if reply.TaskType == MapTaskType {
-			log.Printf("do map task is working")
+			// log.Printf("do map task is working")
 			// log.Printf("map task reply: %v", reply)
 			doMapTask(reply, mapf, workerId)
 		} else if reply.TaskType == ReduceTaskType {
-			log.Printf("do reduce task is working")
-			log.Printf("reduce task reply: %v", reply)
+			// log.Printf("do reduce task is working")
+			// log.Printf("reduce task reply: %v", reply)
 			doReduceTask(reply, reducef, workerId)
 		} else if reply.TaskType == NoTaskType {
 			log.Printf("No task available, waiting...")
@@ -92,63 +92,87 @@ func doMapTask(reply AssignTaskReply, mapf func(string, string) []KeyValue, work
 	kva := mapf(filename, string(content))
 	intermediate = append(intermediate, kva...)
 
-	currentDir, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("cannot get current directory: %v", err)
-	}
-	// 将中间结果写入中间文件
-	intermediateFileName := make([]string, 10)
+	// 使用 map 替代固定大小的数组
+	intermediateFiles := make(map[int]string)
+
 	for _, kv := range intermediate {
 		index := ihash(kv.Key) % reply.NReduce
-		ofileName := fmt.Sprintf("mr-%d-%d-%d", reply.TaskId, index, workerId)
-		//判断文件是否存在
-		if _, err := os.Stat(ofileName); os.IsNotExist(err) {
+		ofileName := fmt.Sprintf("mr-%d-%d", reply.TaskId, index)
+
+		if _, exists := intermediateFiles[index]; !exists {
 			ofile, err := os.Create(ofileName)
 			if err != nil {
 				log.Fatalf("cannot create %v", ofileName)
 			}
-			intermediateFileName[index] = currentDir + "/" + ofileName
-			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
-			ofile.Close()
-		} else {
-			ofile, err := os.OpenFile(ofileName, os.O_WRONLY|os.O_APPEND, 0666)
-			if err != nil {
-				log.Fatalf("cannot open %v", ofileName)
-			}
-			fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
+			intermediateFiles[index] = ofileName
 			ofile.Close()
 		}
+
+		// 追加写入文件
+		ofile, err := os.OpenFile(ofileName, os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalf("cannot open %v", ofileName)
+		}
+		fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
+		ofile.Close()
 	}
 
-	// 通知 coordinator 任务完成，并传递临时文件信息
+	// 将 map 转换为切片
+	outputFiles := make([]string, 0, len(intermediateFiles))
+	for _, fname := range intermediateFiles {
+		outputFiles = append(outputFiles, fname)
+	}
+
 	args := UpdateTaskArgs{
 		TaskId:      reply.TaskId,
 		WorkerId:    workerId,
 		TaskType:    MapTaskType,
 		Done:        true,
-		OutputFiles: intermediateFileName,
+		OutputFiles: outputFiles,
 	}
 	updateTaskReply := UpdateTaskReply{}
 	call("Coordinator.UpdateTask", &args, &updateTaskReply)
-	log.Printf("update task reply: %v", updateTaskReply)
+	// log.Printf("update task reply: %v", updateTaskReply)
 
 	if updateTaskReply.Received {
 		log.Printf("map task done")
 	} else {
 		log.Printf("map task failed")
 		// 需要删除临时文件
-		for _, fileName := range intermediateFileName {
+		for _, fileName := range outputFiles {
 			os.Remove(fileName)
 		}
 	}
 }
 
 func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, workerId int) {
-	log.Printf("do reduce task is working")
-
 	reduceFiles := reply.ReduceFiles
-	log.Printf("reduce files: %v", reduceFiles)
 
+	// 检查文件列表是否为空
+	if len(reduceFiles) == 0 {
+		// 创建空输出文件
+		outFileName := fmt.Sprintf("mr-out-%d", reply.TaskId)
+		os.Create(outFileName) // 创建空文件
+
+		// 通知 Coordinator 任务完成
+		args := UpdateTaskArgs{
+			TaskId:   reply.TaskId,
+			WorkerId: workerId,
+			TaskType: ReduceTaskType,
+			Done:     true,
+		}
+		updateTaskReply := UpdateTaskReply{}
+		call("Coordinator.UpdateTask", &args, &updateTaskReply)
+
+		if updateTaskReply.Received {
+			log.Printf("reduce task done")
+		} else {
+			log.Printf("reduce task failed")
+		}
+		return
+	}
+
+	// 原有代码处理非空文件列表
 	allContent := []KeyValue{}
 	for _, file := range reduceFiles {
 		content, err := os.ReadFile(file)
@@ -203,7 +227,7 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, 
 	}
 	updateTaskReply := UpdateTaskReply{}
 	call("Coordinator.UpdateTask", &args, &updateTaskReply)
-	log.Printf("update task reply: %v", updateTaskReply)
+	// log.Printf("update task reply: %v", updateTaskReply)
 
 	if updateTaskReply.Received {
 		log.Printf("reduce task done")
@@ -213,7 +237,7 @@ func doReduceTask(reply AssignTaskReply, reducef func(string, []string) string, 
 		os.Remove(ofileName)
 	}
 
-	log.Printf("reduce task done")
+	// log.Printf("reduce task done")
 }
 
 // 获取任务

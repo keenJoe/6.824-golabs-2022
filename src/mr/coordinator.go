@@ -48,31 +48,24 @@ func (c *Coordinator) AssignTask(args *AssignTaskArgs, reply *AssignTaskReply) e
 
 // Map 任务分配
 func (c *Coordinator) assignMapTask(workerId int, reply *AssignTaskReply) error {
-	// 查找空闲的 Map 任务
 	for i := range c.mapTasks {
 		task := &c.mapTasks[i]
 		if task.Status == Idle {
-			// 更新任务状态
 			task.Status = InProgress
 			task.WorkerId = workerId
 			task.StartTime = time.Now()
 
-			// 填充响应
 			reply.TaskType = MapTaskType
 			reply.TaskId = task.TaskId
 			reply.NReduce = c.nReduce
 			reply.InputFile = task.FileName
 
-			log.Printf("Assigned map task %d to worker %d", task.TaskId, workerId)
 			return nil
 		}
 	}
 
-	// 检查是否所有 Map 任务都已完成
 	if c.allMapTasksCompleted() {
 		c.phase = ReducePhase
-		log.Printf("All map tasks completed, switching to reduce phase")
-		// 准备 Reduce 任务
 		c.prepareReduceTasks()
 	}
 
@@ -83,31 +76,25 @@ func (c *Coordinator) assignMapTask(workerId int, reply *AssignTaskReply) error 
 
 // Reduce 任务分配
 func (c *Coordinator) assignReduceTask(workerId int, reply *AssignTaskReply) error {
-	// 查找空闲的 Reduce 任务
 	for i := range c.reduceTasks {
 		task := &c.reduceTasks[i]
 		if task.Status == Idle {
-			// 更新任务状态
 			task.Status = InProgress
 			task.WorkerId = workerId
 			task.StartTime = time.Now()
 
-			// 填充响应
 			reply.TaskType = ReduceTaskType
 			reply.TaskId = task.TaskNumber
 			reply.NReduce = c.nReduce
 			reply.ReduceFiles = task.InputFiles
 
-			log.Printf("Assigned reduce task %d to worker %d", task.TaskNumber, workerId)
 			return nil
 		}
 	}
 
-	// 检查是否所有 Reduce 任务都已完成
 	if c.allReduceTasksCompleted() {
 		c.phase = CompletePhase
-		log.Printf("All reduce tasks completed, job is done")
-		return fmt.Errorf("unknown phase: %v", c.phase)
+		return nil
 	}
 
 	reply.TaskType = NoTaskType
@@ -127,6 +114,7 @@ func (c *Coordinator) allMapTasksCompleted() bool {
 
 // 准备 Reduce 任务
 func (c *Coordinator) prepareReduceTasks() {
+	// 初始化中间文件数组
 	c.intermediateFiles = make([][]string, c.nReduce)
 	for i := range c.intermediateFiles {
 		c.intermediateFiles[i] = make([]string, 0)
@@ -134,14 +122,17 @@ func (c *Coordinator) prepareReduceTasks() {
 
 	// 收集所有 Map 任务产生的中间文件
 	for _, task := range c.mapTasks {
-		for _, filename := range task.OutputFiles {
-			// 从文件名提取 reduce 编号
-			lastIndex := strings.LastIndex(filename, "-")
-			reduceId, err := strconv.Atoi(filename[lastIndex+1:])
-			if err != nil {
-				log.Printf("Warning: Could not parse filename %s", filename)
+		if task.Status == Completed {
+			for _, filename := range task.OutputFiles {
+				// 从文件名提取 reduce 编号 - 假设格式为 mr-M-R
+				parts := strings.Split(filename, "-")
+				if len(parts) >= 3 {
+					reduceNum, err := strconv.Atoi(parts[2])
+					if err == nil && reduceNum < c.nReduce {
+						c.intermediateFiles[reduceNum] = append(c.intermediateFiles[reduceNum], filename)
+					}
+				}
 			}
-			c.intermediateFiles[reduceId] = append(c.intermediateFiles[reduceId], filename)
 		}
 	}
 
@@ -156,7 +147,7 @@ func (c *Coordinator) prepareReduceTasks() {
 		}
 	}
 
-	log.Printf("prepareReduceTasks: %v", c.reduceTasks)
+	// log.Printf("prepareReduceTasks: %v", c.reduceTasks)
 }
 
 // 检查所有 Reduce 任务是否完成
@@ -181,15 +172,7 @@ func (c *Coordinator) UpdateTask(args *UpdateTaskArgs, reply *UpdateTaskReply) e
 			if task.Status == InProgress && task.WorkerId == args.WorkerId {
 				task.Status = Completed
 				task.OutputFiles = args.OutputFiles
-
-				// 将map任务临时生成的文件改成永久文件
-				for i, file := range task.OutputFiles {
-					lastIndex := strings.LastIndex(file, "-")
-					fileName := file[:lastIndex]
-					os.Rename(file, fileName)
-					task.OutputFiles[i] = fileName
-				}
-
+				// 不需要重命名文件，保持原样
 				reply.Received = true
 				return nil
 			}
@@ -216,7 +199,6 @@ func (c *Coordinator) MonitorTasks() {
 		c.mu.Lock()
 		now := time.Now()
 
-		// 检查 Map 任务超时
 		if c.phase == MapPhase {
 			for i := range c.mapTasks {
 				task := &c.mapTasks[i]
@@ -224,11 +206,15 @@ func (c *Coordinator) MonitorTasks() {
 					log.Printf("Map task %d timeout, resetting", task.TaskId)
 					task.Status = Idle
 					task.WorkerId = -1
+					// 清理可能存在的中间文件
+					for _, file := range task.OutputFiles {
+						os.Remove(file)
+					}
+					task.OutputFiles = nil
 				}
 			}
 		}
 
-		// 检查 Reduce 任务超时
 		if c.phase == ReducePhase {
 			for i := range c.reduceTasks {
 				task := &c.reduceTasks[i]
@@ -236,6 +222,9 @@ func (c *Coordinator) MonitorTasks() {
 					log.Printf("Reduce task %d timeout, resetting", task.TaskNumber)
 					task.Status = Idle
 					task.WorkerId = -1
+					// 尝试删除可能存在的输出文件
+					outFile := fmt.Sprintf("mr-out-%d", task.TaskNumber)
+					os.Remove(outFile)
 				}
 			}
 		}
